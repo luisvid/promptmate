@@ -9,15 +9,51 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onCommand:promptmate.sendPrompt",
+    "onCommand:promptmate.openSettings",
+    "onView:promptmate.settingsView"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "promptmate.helloWorld",
-        "title": "Hello World"
+        "command": "promptmate.sendPrompt",
+        "title": "Send Prompt to AI"
+      },
+      {
+        "command": "promptmate.openSettings",
+        "title": "AI Settings"
       }
-    ]
+    ],
+    "views": {
+      "workbench.view.extensions": [
+        {
+          "id": "promptmate.settingsView",
+          "name": "AI Settings"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "AI Prompt Sender",
+      "properties": {
+        "aiPromptSender.apiProvider": {
+          "type": "string",
+          "default": "",
+          "description": "URL of the AI API provider"
+        },
+        "aiPromptSender.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key for authentication"
+        },
+        "aiPromptSender.contextFilePath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to context file"
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
