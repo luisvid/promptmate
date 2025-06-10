@@ -1,66 +1,100 @@
-import * as vscode from 'vscode';
-import { getSettings } from '../settings';
-import { sendPrompt } from '../api/client';
-import * as fs from 'fs/promises';
+import * as vscode from "vscode";
+import { getSettings } from "../settings";
+import { sendOpenAIPrompt } from "../api/client";
+import * as fs from "fs/promises";
 
 export class MainPanel {
-    public static readonly viewType = 'promptmate.mainPanel';
-    private panel: vscode.WebviewPanel | undefined;
+  public static readonly viewType = "promptmate.mainPanel";
+  private panel: vscode.WebviewPanel | undefined;
 
-    constructor(private readonly context: vscode.ExtensionContext) {}
+  constructor(private readonly context: vscode.ExtensionContext) {}
 
-    public show() {
-        if (this.panel) {
-            this.panel.reveal();
-            return;
-        }
+  public show() {
+    if (this.panel) {
+      this.panel.reveal();
+      return;
+    }
 
-        this.panel = vscode.window.createWebviewPanel(
-            MainPanel.viewType,
-            'Send Prompt to AI',
-            vscode.ViewColumn.One,
-            { enableScripts: true }
+    this.panel = vscode.window.createWebviewPanel(
+      MainPanel.viewType,
+      "Send Prompt to AI",
+      vscode.ViewColumn.One,
+      { enableScripts: true }
+    );
+
+    this.panel.onDidDispose(() => {
+      this.panel = undefined;
+    });
+
+    this.panel.webview.html = this.getHtml();
+    this.panel.webview.onDidReceiveMessage(async (msg) => {
+      switch (msg.command) {
+        case "send":
+          await this.handleSend(msg.prompt);
+          break;
+      }
+    });
+  }
+
+  private async handleSend(prompt: string) {
+    if (!this.panel) {
+      return;
+    }
+    const webview = this.panel.webview;
+    try {
+      const settings = getSettings();
+      if (
+        !settings.apiProvider ||
+        !settings.apiKey ||
+        !settings.contextFilePath
+      ) {
+        throw new Error(
+          "Please configure API Provider, API Key, and Context File Path."
         );
-
-        this.panel.onDidDispose(() => {
-            this.panel = undefined;
-        });
-
-        this.panel.webview.html = this.getHtml();
-        this.panel.webview.onDidReceiveMessage(async msg => {
-            switch (msg.command) {
-                case 'send':
-                    await this.handleSend(msg.prompt);
-                    break;
-            }
-        });
-    }
-
-    private async handleSend(prompt: string) {
-        if (!this.panel) {
-            return;
+      }
+      const context = await fs.readFile(settings.contextFilePath, "utf8");
+      const payload = {
+        prompt: `${context}\n${prompt}`,
+      };
+      const responseRaw = await sendOpenAIPrompt(
+        settings.apiKey,
+        "gpt-3.5-turbo", // settings.model,
+        payload.prompt
+      );
+      let responseText = responseRaw;
+      let logInfo = null;
+      try {
+        const parsed = JSON.parse(responseRaw);
+        // Extract the main text from the OpenAI response structure
+        if (
+          parsed &&
+          parsed.output &&
+          Array.isArray(parsed.output) &&
+          parsed.output.length > 0 &&
+          parsed.output[0].content &&
+          Array.isArray(parsed.output[0].content) &&
+          parsed.output[0].content.length > 0 &&
+          parsed.output[0].content[0].text
+        ) {
+          responseText = parsed.output[0].content[0].text;
         }
-        const webview = this.panel.webview;
-        try {
-            const settings = getSettings();
-            if (!settings.apiProvider || !settings.apiKey || !settings.contextFilePath) {
-                throw new Error('Please configure API Provider, API Key, and Context File Path.');
-            }
-            const context = await fs.readFile(settings.contextFilePath, 'utf8');
-            const payload = {
-                prompt: `${context}\n${prompt}`,
-            };
-            const response = await sendPrompt(settings.apiProvider, settings.apiKey, payload);
-            webview.postMessage({ command: 'reply', text: response });
-        } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            webview.postMessage({ command: 'error', text: msg });
-        }
+        logInfo = { ...parsed, output: undefined }; // Remove output for brevity
+      } catch (e) {
+        // Not JSON, just show as is
+      }
+      if (logInfo) {
+        console.log("[PromptMate] Full response info:", logInfo);
+      }
+      webview.postMessage({ command: "reply", text: responseText });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      webview.postMessage({ command: "error", text: msg });
     }
+  }
 
-    private getHtml(): string {
-        const nonce = getNonce();
-        return `<!DOCTYPE html>
+  private getHtml(): string {
+    const nonce = getNonce();
+    return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -97,14 +131,15 @@ export class MainPanel {
     </script>
 </body>
 </html>`;
-    }
+  }
 }
 
 function getNonce() {
-    let text = '';
-    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    for (let i = 0; i < 32; i++) {
-        text += possible.charAt(Math.floor(Math.random() * possible.length));
-    }
-    return text;
+  let text = "";
+  const possible =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  for (let i = 0; i < 32; i++) {
+    text += possible.charAt(Math.floor(Math.random() * possible.length));
+  }
+  return text;
 }
