@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { getSettings } from "../settings";
-import { sendOpenAIPrompt } from "../api/client";
+import { sendOpenAIPrompt, sendPrompt } from "../api/client";
 import * as fs from "fs/promises";
 
 export class MainPanel {
@@ -56,17 +56,36 @@ export class MainPanel {
       const payload = {
         prompt: `${context}\n${prompt}`,
       };
-      const responseRaw = await sendOpenAIPrompt(
+      // const responseRaw = await sendOpenAIPrompt(
+      //   settings.apiKey,
+      //   "gpt-3.5-turbo", // settings.model,
+      //   payload.prompt
+      // );
+      const responseRaw = await sendPrompt(
+        settings.apiProvider,
         settings.apiKey,
-        "gpt-3.5-turbo", // settings.model,
-        payload.prompt
+        settings.model,
+        payload.prompt,
+        {}, // extraHeaders
+        {}, // extraPayload
+        true // useMessages: send as chat/messages format
       );
+
       let responseText = responseRaw;
       let logInfo = null;
       try {
         const parsed = JSON.parse(responseRaw);
-        // Extract the main text from the OpenAI response structure
+        // Extract the main text from OpenAI chat/completions response
         if (
+          parsed &&
+          parsed.choices &&
+          Array.isArray(parsed.choices) &&
+          parsed.choices.length > 0 &&
+          parsed.choices[0].message &&
+          typeof parsed.choices[0].message.content === "string"
+        ) {
+          responseText = parsed.choices[0].message.content;
+        } else if (
           parsed &&
           parsed.output &&
           Array.isArray(parsed.output) &&
@@ -78,7 +97,13 @@ export class MainPanel {
         ) {
           responseText = parsed.output[0].content[0].text;
         }
-        logInfo = { ...parsed, output: undefined }; // Remove output for brevity
+        logInfo = { ...parsed };
+        if (logInfo.choices) {
+          logInfo.choices = undefined;
+        }
+        if (logInfo.output) {
+          logInfo.output = undefined;
+        }
       } catch (e) {
         // Not JSON, just show as is
       }
@@ -113,19 +138,36 @@ export class MainPanel {
     <br/>
     <button id="send">Send</button>
     <div id="response"></div>
+    <div id="loading" style="display:none;margin-top:0.5rem;visibility:hidden;">⏳ Waiting for response...</div>
     <script nonce="${nonce}">
         const vscode = acquireVsCodeApi();
-        document.getElementById('send').addEventListener('click', () => {
-            const prompt = (document.getElementById('prompt')).value;
+        const sendBtn = document.getElementById('send');
+        const promptInput = document.getElementById('prompt');
+        const responseDiv = document.getElementById('response');
+        const loadingDiv = document.getElementById('loading');
+        loadingDiv.style.display = 'none';
+        loadingDiv.style.visibility = 'hidden';
+        sendBtn.addEventListener('click', () => {
+            const prompt = promptInput.value;
+            if (!prompt.trim()) return;
+            responseDiv.textContent = '';
+            loadingDiv.style.display = 'block';
+            loadingDiv.style.visibility = 'visible';
+            sendBtn.disabled = true;
+            promptInput.disabled = true;
             vscode.postMessage({ command: 'send', prompt });
         });
         window.addEventListener('message', event => {
             const msg = event.data;
+            loadingDiv.style.display = 'none';
+            loadingDiv.style.visibility = 'hidden';
+            sendBtn.disabled = false;
+            promptInput.disabled = false;
             if (msg.command === 'reply') {
-                document.getElementById('response').textContent = msg.text;
+                responseDiv.textContent = msg.text;
             }
             if (msg.command === 'error') {
-                document.getElementById('response').textContent = 'Error: ' + msg.text;
+                responseDiv.textContent = 'Error: ' + msg.text;
             }
         });
     </script>
