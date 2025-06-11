@@ -1,20 +1,31 @@
 export async function sendPrompt(
   apiProvider: string,
   apiKey: string,
-  payload: unknown
+  model: string,
+  input: string,
+  extraHeaders: Record<string, string> = {},
+  extraPayload: Record<string, unknown> = {},
+  useMessages: boolean = false
 ): Promise<string> {
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${apiKey}`,
+    ...extraHeaders,
+  };
+  const payload = useMessages
+    ? { model, messages: [{ role: "user", content: input }], ...extraPayload }
+    : { model, input, ...extraPayload };
   const response = await fetch(apiProvider, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
+    headers,
     body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
+    let errorText = await response.text();
+    console.error("[PromptMate] API Error Response:", errorText);
     throw new Error(
-      `Request failed: ${response.status} ${response.statusText}`
+      `Request failed: ${response.status} ${response.statusText} - ${errorText}`
     );
   }
 
